@@ -36,7 +36,6 @@ my @descriptions               = ();
 my @freeze_filesystem          = ();
 my $neo4j                      = 0;
 my $neo4j_home                 = undef;
-my $neo4j_java_home            = undef;
 my $neo4j_instance             = undef;
 my $mongo                      = 0;
 my $mongo_username             = undef;
@@ -80,7 +79,6 @@ GetOptions(
   'freeze-filesystem=s'          => \@freeze_filesystem,
   'neo4j'                        => \$neo4j,
   'neo4j-home=s'                 => \$neo4j_home,
-  'neo4j-java-home=s'            => \$neo4j_java_home,
   'neo4j-instance=s'             => \$neo4j_instance,
   'mongo'                        => \$mongo,
   'mongo-username=s'             => \$mongo_username,
@@ -151,7 +149,8 @@ if ( scalar (@descriptions) == 1 ) {
 # Neo4j
 #
 my $neo4j_stopped = undef;
-if ( $neo4j) {
+if ( $neo4j ) {
+  set_neo4j_environment();
   $neo4j_stopped = neo4j_stop();
 }
 
@@ -214,6 +213,7 @@ END {
   }
 
   if ( $neo4j_stopped ) {
+    set_neo4j_environment();
     neo4j_start();
   }
 
@@ -301,11 +301,17 @@ sub ebs_snapshot {
 #
 # Neo4j
 #
+sub set_neo4j_environment {
+  if ( not defined $neo4j_home ) {
+    die "$Prog: ERROR: --neo4j-home must be provided";
+  }
+
+  $ENV{NEO4J_INSTANCE}=$neo4j_instance;
+}
+
 sub neo4j_stop {
   $Debug and warn "$Prog: ", scalar localtime, ": neo4j stop\n";
 
-  $ENV{JAVA_HOME}=$neo4j_java_home;
-  $ENV{NEO4J_INSTANCE}=$neo4j_instance;
   my $result = system("$neo4j_home/bin/neo4j", 'stop');
 
   if ( $result != 0 ) {
@@ -790,20 +796,16 @@ filesystems on the the EBS volume(s).
 
 =item --neo4j
 
-Indicates that the volume cntains data files for a running Neo4j
-databse, which will be stopped during the snapshot.
+Indicates that the volume contains data files for a running Neo4j
+database, which will be stopped during the snapshot.
 
 =item --neo4j-home
 
-Path where Neo4j is installed.
-
-=item --neo4j-java-home
-
-Path where Java is installed.
+MANDATORY. Path where Neo4j is installed.
 
 =item --neo4j-instance
 
-Path where Neo4j data and conf are located.
+Path where Neo4j data and conf are located. (optional)
 
 =item --mongo
 
