@@ -34,6 +34,9 @@ my $region                     = undef;
 my $ec2_endpoint               = undef;
 my @descriptions               = ();
 my @freeze_filesystem          = ();
+my $neo4j                      = 0;
+my $neo4j_home                 = undef;
+my $neo4j_instance             = undef;
 my $mongo                      = 0;
 my $mongo_username             = undef;
 my $mongo_password             = undef;
@@ -74,6 +77,9 @@ GetOptions(
   'description=s'                => \@descriptions,
   'xfs-filesystem=s'             => \@freeze_filesystem,
   'freeze-filesystem=s'          => \@freeze_filesystem,
+  'neo4j'                        => \$neo4j,
+  'neo4j-home=s'                 => \$neo4j_home,
+  'neo4j-instance=s'             => \$neo4j_instance,
   'mongo'                        => \$mongo,
   'mongo-username=s'             => \$mongo_username,
   'mongo-password=s'             => \$mongo_password,
@@ -137,7 +143,16 @@ if ( scalar (@descriptions) == 1 ) {
   for ( my $index = 1; $index < scalar (@volume_ids); ++$index ) {
     $descriptions[$index] = $descriptions[0];
   }
-} 
+}
+
+#
+# Neo4j
+#
+my $neo4j_stopped = undef;
+if ( $neo4j ) {
+  set_neo4j_environment();
+  $neo4j_stopped = neo4j_stop();
+}
 
 #
 # Mongo
@@ -195,6 +210,11 @@ END {
       unlink $mysql_master_status_file
         or die "$Prog: Couldn't remove file: $mysql_master_status_file: $!\n";
     }
+  }
+
+  if ( $neo4j_stopped ) {
+    set_neo4j_environment();
+    neo4j_start();
   }
 
   if ( $mongo_stopped ) {
@@ -275,6 +295,39 @@ sub ebs_snapshot {
         warn "$Prog: ERROR: ".$error->message."\n";
       }
     }
+  }
+}
+
+#
+# Neo4j
+#
+sub set_neo4j_environment {
+  if ( not defined $neo4j_home ) {
+    die "$Prog: ERROR: --neo4j-home must be provided";
+  }
+
+  $ENV{NEO4J_INSTANCE}=$neo4j_instance;
+}
+
+sub neo4j_stop {
+  $Debug and warn "$Prog: ", scalar localtime, ": neo4j stop\n";
+
+  my $result = system("$neo4j_home/bin/neo4j", 'stop');
+
+  if ( $result != 0 ) {
+    die "$Prog: Unable to stop neo4j: $? $!";
+  }
+
+  return 1;
+}
+
+sub neo4j_start {
+  $Debug and warn "$Prog: ", scalar localtime, ": neo4j start\n";
+
+  my $result = system("$neo4j_home/bin/neo4j", 'start');
+
+  if ( $result != 0 ) {
+    warn "$Prog: Unable to start neo4j: $? $!";
   }
 }
 
@@ -738,8 +791,21 @@ works on any filesystems that support freezing, provided the kernel
 you are using supports it. (Linux Ext3/4, ReiserFS, JFS, XFS.)
 fsfreeze comes with newer versions of util-linux.
 
-You may specify this option multiple times if you need to freeze multiple 
+You may specify this option multiple times if you need to freeze multiple
 filesystems on the the EBS volume(s).
+
+=item --neo4j
+
+Indicates that the volume contains data files for a running Neo4j
+database, which will be stopped during the snapshot.
+
+=item --neo4j-home
+
+MANDATORY. Path where Neo4j is installed.
+
+=item --neo4j-instance
+
+Path where Neo4j data and conf are located. (optional)
 
 =item --mongo
 
@@ -747,7 +813,7 @@ Indicates that the volume contains data files for a running Mongo
 database, which will be flushed and locked during the snapshot.
 
 =item --mongo-host HOST
- 
+
 =item --mongo-port PORT
 
 =item --mongo-username USER
@@ -770,8 +836,8 @@ database, which will be flushed and locked during the snapshot.
 
 =item --mysql-defaults-file FILE
 
-MySQL defaults file, containing host, username and password, this 
-option will ignore the --mysql-host, --mysql-username, 
+MySQL defaults file, containing host, username and password, this
+option will ignore the --mysql-host, --mysql-username,
 --mysql-password parameters
 
 =item --mysql-host HOST
@@ -834,7 +900,7 @@ start/unlock.
 =head1 ARGUMENTS
 
 =over
-    
+
 =item VOLUMEID
 
 EBS volume id(s) for which a snapshot is to be created.
